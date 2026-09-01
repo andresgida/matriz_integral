@@ -1,0 +1,32 @@
+# --- Datos sensibles / generados: NO subir a GitHub ---
+# Archivos Excel de entrada (contienen tickets reales de Zoho)
+entrada/*.xlsx
+entrada/*.xls
+# Snapshots historicos por ejecucion
+historico/**
+# Reportes generados
+reportes/**
+
+# Cache de Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Entornos virtuales
+.venv/
+venv/
+env/
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+
+# Secretos (por si en el futuro se agregan)
+.env
+.env.local
+secrets.toml
+.streamlit/secrets.toml

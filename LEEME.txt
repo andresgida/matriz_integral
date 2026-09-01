@@ -1,0 +1,47 @@
+MONITOR DE TICKETS - ZOHO ANALYTICS
+====================================
+
+USO DIARIO (3 pasos):
+---------------------
+1) Descarga de Zoho Analytics los 3 Excel y guardalos EN LA CARPETA "entrada/"
+   con estos nombres EXACTOS (reemplaza los del dia anterior):
+
+       entrada\tickets_nuevos.xlsx     (estado "nuevo" o "abierto")
+       entrada\tickets_revision.xlsx   (estado "revision")
+       entrada\tickets_devuelto.xlsx   (estado "devuelto a servicios")
+
+2) Haz doble clic en "ejecutar_monitor.bat"
+   (o abre PowerShell aqui y escribe:  py monitor.py)
+
+3) Abre el reporte que aparece en la carpeta "reportes\".
+   Se llamara:  Reporte_Monitoreo_AAAA-MM-DD.xlsx
+
+
+QUE HACE EL PROGRAMA
+--------------------
+- Guarda una copia de los 3 Excel de HOY en:  historico\AAAA-MM-DD\
+- Compara los tickets de HOY contra los de AYER (la carpeta del dia anterior).
+- Identifica que tickets DESAPARECIERON del listado "nuevos/abiertos"
+  y verifica si aparecieron en "revision" o "devuelto".
+- Genera un reporte Excel con:
+    * Tabla comparativa Hoy vs Ayer.
+    * Cuantos pasaron a revision / devuelto / otros estados.
+    * IDs especificos de cada ticket que cambio (una hoja por categoria).
+    * Grafico de barras (Hoy vs Ayer) y grafico de torta (movimientos).
+
+
+PRIMER DIA
+----------
+El primer dia que lo ejecutes NO habra datos de "ayer" para comparar,
+por lo que el reporte solo mostrara los totales de hoy. A partir del
+segundo dia la comparacion sera completa.
+
+
+REQUISITOS
+----------
+- Python 3 instalado (ya lo tienes: version 3.14).
+- Las librerias pandas, openpyxl, xlsxwriter y matplotlib.
+  Si en algun momento aparece un error de "modulo no encontrado", abre
+  PowerShell en esta carpeta y ejecuta:
+
+      py -m pip install pandas openpyxl xlsxwriter matplotlib
