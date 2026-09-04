@@ -72,6 +72,8 @@ COLUMNAS_REPORTE = [
     "Nombre completo",
     "Responsable FDS",
     "Estado FDS",
+    "Fecha Inicio FDS",
+    "Fecha Fin FDS",
     "Hora de creación",
     "Hora de actualización del estado",
 ]
