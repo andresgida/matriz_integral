@@ -223,7 +223,9 @@ def actualizar_historial(datos: dict) -> pd.DataFrame:
                                 if datos["ts_anterior"] else ""),
         "tipo_comparacion":    datos["tipo_comparacion"],
         "intervalo":           datos["intervalo_desc"],
-        "total_nuevos":        datos["total_nuevos_hoy"],
+        # Excluye "repetidos" (Estado FDS = Devuelto) para que el historial
+        # solo cuente los nuevos/abiertos realmente activos.
+        "total_nuevos":        datos["total_nuevos_hoy_activos"],
         "total_revision":      datos["total_revision_hoy"],
         "total_devuelto":      datos["total_devuelto_hoy"],
         "pasaron_a_revision":  len(datos["ids_movidos_revision"]),
@@ -358,6 +360,34 @@ def comparar(ts_actual: datetime) -> dict:
     # 6) Igual pero desde DEVUELTO A SERVICIOS.
     salieron_de_devuelto = ayer_devu_ids - hoy_todos_ids
 
+    # 7) Tickets "excluidos": estan en Nuevos/Abiertos pero su columna
+    #    "Estado FDS" tiene un valor que NO representa trabajo activo de
+    #    desarrollo (Devuelto, Backlog Robot, Certificacion, Done). No
+    #    deben sumar en Nuevos/Abiertos, se muestran en una hoja aparte.
+    COL_EST_FDS_LOC = "Estado FDS"
+    ESTADOS_FDS_EXCLUIR = {
+        "devuelto",
+        "backlog robot",
+        "certificacion", "certificación",
+        "done",
+    }
+
+    def _excluidos_fds(df: pd.DataFrame, todos_ids: set) -> set:
+        """IDs cuyo 'Estado FDS' esta en ESTADOS_FDS_EXCLUIR (insensible a
+        mayusculas y espacios). Solo dentro del universo 'todos_ids'."""
+        if df.empty or COL_EST_FDS_LOC not in df.columns:
+            return set()
+        est = df[COL_EST_FDS_LOC].astype(str).str.strip().str.lower()
+        ids = set(df.loc[est.isin(ESTADOS_FDS_EXCLUIR), COL_ID].astype(str))
+        return ids & todos_ids
+
+    hoy_excluidos_ids  = _excluidos_fds(df_hoy_nuevos,  hoy_nuevos_ids)
+    ayer_excluidos_ids = _excluidos_fds(df_ayer_nuevos, ayer_nuevos_ids)
+
+    # Los nuevos "activos" son los que quedan tras excluir los anteriores.
+    hoy_nuevos_activos_ids  = hoy_nuevos_ids  - hoy_excluidos_ids
+    ayer_nuevos_activos_ids = ayer_nuevos_ids - ayer_excluidos_ids
+
     return {
         # Marcas de tiempo del snapshot actual y del que se comparo
         "ts_actual":         ts_actual,
@@ -402,10 +432,20 @@ def comparar(ts_actual: datetime) -> dict:
         "df_salieron_devuelto": subset(df_ayer_devu, salieron_de_devuelto, estado_anterior="Devuelto a Servicios"),
 
         # Listados COMPLETOS de HOY por estado (para hojas navegables desde
-        # los numeros del resumen).
-        "df_todos_nuevos_hoy":   subset(df_hoy_nuevos, hoy_nuevos_ids),
+        # los numeros del resumen). "df_todos_nuevos_hoy" excluye los
+        # tickets "repetidos" (Estado FDS = Devuelto) que van en su propia hoja.
+        "df_todos_nuevos_hoy":   subset(df_hoy_nuevos, hoy_nuevos_activos_ids),
         "df_todos_revision_hoy": subset(df_hoy_revi,   hoy_revi_ids),
         "df_todos_devuelto_hoy": subset(df_hoy_devu,   hoy_devu_ids),
+
+        # Hoja aparte: tickets nuevos cuya columna "Estado FDS" es uno
+        # de: Devuelto, Backlog Robot, Certificacion, Done. No representan
+        # trabajo activo de desarrollo, por eso no cuentan en Nuevos.
+        "df_tickets_excluidos":         subset(df_hoy_nuevos, hoy_excluidos_ids),
+        "total_tickets_excluidos_hoy":  len(hoy_excluidos_ids),
+        "total_tickets_excluidos_ayer": len(ayer_excluidos_ids),
+        "total_nuevos_hoy_activos":     len(hoy_nuevos_activos_ids),
+        "total_nuevos_ayer_activos":    len(ayer_nuevos_activos_ids),
 
         # Tambien devolvemos los IDs por si se necesitan
         "ids_movidos_revision":  sorted(movidos_a_revision),
@@ -525,12 +565,14 @@ def generar_reporte(datos: dict, historial: pd.DataFrame) -> Path:
                 "Primer dia de monitoreo: aun no hay datos de AYER para comparar. "
                 "Vuelve a ejecutar mañana.", f_warn)
             # Totales clickeables (llevan a la hoja con la lista completa)
-            ws.write_url("A5", "internal:'Todos_Nuevos_Hoy'!A1",   f_link, "Total NUEVOS/ABIERTOS hoy:")
-            ws.write("B5", datos["total_nuevos_hoy"], f_num)
+            ws.write_url("A5", "internal:'Todos_Nuevos_Hoy'!A1",   f_link, "Total NUEVOS/ABIERTOS hoy (activos):")
+            ws.write("B5", datos["total_nuevos_hoy_activos"], f_num)
             ws.write_url("A6", "internal:'Todos_Revision_Hoy'!A1", f_link, "Total en REVISION hoy:")
             ws.write("B6", datos["total_revision_hoy"], f_num)
             ws.write_url("A7", "internal:'Todos_Devuelto_Hoy'!A1", f_link, "Total DEVUELTOS hoy:")
             ws.write("B7", datos["total_devuelto_hoy"], f_num)
+            ws.write_url("A8", "internal:'Excluidos_de_Nuevos'!A1", f_link, "Excluidos de Nuevos (Devuelto / Backlog Robot / Certificacion / Done):")
+            ws.write("B8", datos["total_tickets_excluidos_hoy"], f_num)
 
         if not primer_dia:
             # --- Tabla comparativa HOY vs AYER ---
@@ -541,9 +583,14 @@ def generar_reporte(datos: dict, historial: pd.DataFrame) -> Path:
                 ws.write(2, i, h, f_header)
 
             filas = [
-                ("Nuevos / Abiertos", datos["total_nuevos_ayer"],   datos["total_nuevos_hoy"],   "Todos_Nuevos_Hoy"),
-                ("En revision",       datos["total_revision_ayer"], datos["total_revision_hoy"], "Todos_Revision_Hoy"),
-                ("Devueltos",         datos["total_devuelto_ayer"], datos["total_devuelto_hoy"], "Todos_Devuelto_Hoy"),
+                ("Nuevos / Abiertos (activos)",
+                    datos["total_nuevos_ayer_activos"], datos["total_nuevos_hoy_activos"], "Todos_Nuevos_Hoy"),
+                ("En revision",
+                    datos["total_revision_ayer"],      datos["total_revision_hoy"],       "Todos_Revision_Hoy"),
+                ("Devueltos",
+                    datos["total_devuelto_ayer"],      datos["total_devuelto_hoy"],       "Todos_Devuelto_Hoy"),
+                ("Excluidos de Nuevos (Devuelto / Backlog Robot / Certificacion / Done)",
+                    datos["total_tickets_excluidos_ayer"], datos["total_tickets_excluidos_hoy"], "Excluidos_de_Nuevos"),
             ]
             for i, (estado, ayer_v, hoy_v, hoja) in enumerate(filas, start=3):
                 diff = hoy_v - ayer_v
@@ -765,7 +812,7 @@ def generar_reporte(datos: dict, historial: pd.DataFrame) -> Path:
 
         # --- Hojas con TODOS los tickets de HOY (destino de los links del resumen)
         escribir_detalle("Todos_Nuevos_Hoy",
-                         "Todos los tickets NUEVOS / ABIERTOS de HOY",
+                         "Todos los tickets NUEVOS / ABIERTOS de HOY (activos, excluye repetidos)",
                          datos["df_todos_nuevos_hoy"])
         escribir_detalle("Todos_Revision_Hoy",
                          "Todos los tickets en REVISION de HOY",
@@ -773,6 +820,9 @@ def generar_reporte(datos: dict, historial: pd.DataFrame) -> Path:
         escribir_detalle("Todos_Devuelto_Hoy",
                          "Todos los tickets DEVUELTOS a Servicios de HOY",
                          datos["df_todos_devuelto_hoy"])
+        escribir_detalle("Excluidos_de_Nuevos",
+                         "Tickets en Nuevos/Abiertos con Estado FDS = Devuelto, Backlog Robot, Certificacion o Done (no cuentan en Nuevos)",
+                         datos["df_tickets_excluidos"])
 
         # =====================================================================
         # HOJA: Historial diario acumulado (evolucion de movimientos)
